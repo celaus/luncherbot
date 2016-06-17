@@ -49,12 +49,12 @@ pub struct Geometry {
 
 #[derive(Serialize, Deserialize)]
 pub struct GooglePlacesData {
-    geometry: Geometry,
-    icon: Option<String>,
-    id: String,
-    name: String,
-    types: Vec<String>,
-    vicinity: String,
+    pub geometry: Geometry,
+    pub icon: Option<String>,
+    pub id: String,
+    pub name: String,
+    pub types: Vec<String>,
+    pub vicinity: String,
     next_page_token: Option<String>
 }
 
