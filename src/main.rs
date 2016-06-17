@@ -1,74 +1,32 @@
-#![feature(custom_derive, plugin)]
+#![feature(custom_derive, plugin, associated_consts)]
 #![plugin(serde_macros)]
 
 extern crate serde_json;
 extern crate websocket;
 extern crate chrono;
 extern crate toml;
+extern crate rand;
 
-
-use websocket::{Client, Message};
-use websocket::client::request::Url;
+mod google;
+mod http;
+mod slack;
+mod luncherbot;
+mod venue;
+mod locationprovider;
+mod foursquare;
 
 use std::io;
 use std::io::prelude::*;
 use std::fs::File;
-use toml::{Parser, Value};
-use std::slice::SliceConcatExt;
+use toml::Parser;
+use slack::{SlackAPI, SlackAPIConsumer};
+use luncherbot::{LuncherBot, NamedLocation};
+use google::GoPlacesApi;
+use foursquare::FsVenueApi;
+use locationprovider::LocationProvider;
 
-use std::str::FromStr;
-use chrono::*;
 
-mod api;
-mod http;
-mod slack;
-
-use http::Request;
-use slack::{SlackAPI, SlackAPIConsumer, ChatMessage};
-
-use api::GoogleApi;
-
-pub struct NamedLocation {
-    name: String,
-    longitude: f32,
-    latitude: f32
-}
-
-struct LuncherBot  {
-    google_api: GoogleApi,
-    locations: Vec<NamedLocation>
-}
-
-impl LuncherBot {
-
-    fn new(google_api: GoogleApi, locations: Vec<NamedLocation>) -> LuncherBot {
-        LuncherBot {
-            google_api: google_api,
-            locations: locations,
-        }
-    }
-}
-
-impl  SlackAPIConsumer for LuncherBot {
-    fn on_hello(&self) -> Option<ChatMessage> {
-        println!("HELLO EVENT");
-        return None;
-    }
-
-    fn on_message(&self, text: &str, ts: &NaiveDateTime, user: &str, channel: &str, subtype: &Option<&str>) -> Option<ChatMessage> {
-        let places = self.google_api.nearby(52.501862, 13.411262, "restaurant".to_owned()).unwrap();
-        let x: Vec<&String> = places.iter().map(|p| &p.name).collect();
-        println!("{:?}", x);
-        return Some(ChatMessage {
-            id: 22,
-            t: "message".to_owned(),
-            channel: format!("{}", channel.to_owned()),
-            text: x.join(", ")
-        })
-    }
-}
-
-fn read_api_keys(filename: &str) -> Result<(String, String), io::Error> {
+fn read_api_keys(filename: &str) -> Result<(String, String, String, String), io::Error> {
     let mut buffer = String::new();
     let mut f = try!(File::open(filename));
     try!(f.read_to_string(&mut buffer));
@@ -77,20 +35,30 @@ fn read_api_keys(filename: &str) -> Result<(String, String), io::Error> {
     let keys = value.get("keys").unwrap();
     let google_api_key = keys.lookup("google").unwrap().as_str().unwrap().to_owned();
     let slack_api_key = keys.lookup("slack").unwrap().as_str().unwrap().to_owned();
-    return Ok((google_api_key, slack_api_key));
+    let fs_client_id = keys.lookup("fs_client_id").unwrap().as_str().unwrap().to_owned();
+    let fs_client_secret = keys.lookup("fs_client_secret").unwrap().as_str().unwrap().to_owned();
+
+    return Ok((google_api_key, slack_api_key, fs_client_id, fs_client_secret));
 }
 
 fn main() {
     let locations = vec!(NamedLocation {
-        name: "BLN".to_owned(),
+        name: "BER".to_owned(),
         latitude: 52.501862,
         longitude: 13.411262
+    },
+    NamedLocation {
+        name: "DBN".to_owned(),
+        latitude: 47.405018,
+        longitude: 9.742586
     });
 
     let api_keys = read_api_keys("config.toml").unwrap();
-    let google = GoogleApi::new(api_keys.0);
-    let srv = LuncherBot::new(google, locations);
+    let google = GoPlacesApi::new(api_keys.0);
+    let fs = FsVenueApi::new(api_keys.2, api_keys.3);
+    let srv = LuncherBot::new(&fs as &LocationProvider, locations);
     let mut slack = SlackAPI::new(api_keys.1);
+
     slack.set_callbacks(&srv as &SlackAPIConsumer);
-    slack.connect();
+    let exit = slack.connect();
 }

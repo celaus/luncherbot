@@ -4,8 +4,11 @@ extern crate hyper;
 
 use self::hyper::{Client, Url};
 use std::io::Read;
+use locationprovider::LocationProvider;
+use venue::Venue;
 
-const PLACES_RADARSEARCH: &'static str = "https://maps.googleapis.com/maps/api/place/nearbysearch/json";
+
+const PLACES_RADARSEARCH: &'static str = "https://maps.GoPlacesApis.com/maps/api/place/nearbysearch/json";
 const PLACES_SEARCH_RADIUS: u32 = 2000;
 
 #[derive(Serialize, Deserialize)]
@@ -59,7 +62,7 @@ pub struct GooglePlacesData {
 }
 
 #[derive(Serialize, Deserialize)]
-struct GoogleApiResponse {
+struct GoPlacesApiResponse {
     status: String,
     results: Vec<GooglePlacesData>
 }
@@ -67,17 +70,16 @@ struct GoogleApiResponse {
 #[derive(Debug)]
 pub struct ApiError {}
 
-pub struct GoogleApi {
+pub struct GoPlacesApi {
     api_key: String
 }
-enum ApiRequest {
-    PaginationRequest{next_page_token: String},
-    NewRequest{location: String, tpe: String}
-}
 
-impl GoogleApi {
-    pub fn new(api_key: String) -> GoogleApi {
-        GoogleApi {
+impl GoPlacesApi {
+    const CATEGORIES: &'static str = "restaurant";
+
+
+    pub fn new(api_key: String) -> GoPlacesApi {
+        GoPlacesApi {
             api_key: api_key
         }
     }
@@ -115,7 +117,7 @@ impl GoogleApi {
               }]}".to_owned());
     }
 
-    fn request(&self, loc: &String, t: &String) -> Result<String, ApiError> {
+    fn request(&self, loc: &String, t: &str) -> Result<String, ApiError> {
         let client = Client::new();
 
         let mut url: hyper::Url = Url::parse(&PLACES_RADARSEARCH).unwrap();
@@ -123,7 +125,7 @@ impl GoogleApi {
             .append_pair("key", &self.api_key)
             .append_pair("location",&loc)
             //.append_pair("radius", &PLACES_SEARCH_RADIUS.to_string()) // only if not rankby=distance
-            .append_pair("type", &t)
+            .append_pair("type", t)
             .append_pair("rankby", "distance");
         //match rq {
         //    ApiRequest::PaginationRequest { next_page_token: token} => url.append_pair("pagetoken", token),
@@ -139,10 +141,24 @@ impl GoogleApi {
         return Ok(body);
     }
 
-    pub fn nearby(&self, lat: f32, lon: f32, t: String) -> Result<Vec<GooglePlacesData>, ApiError> {
+    pub fn nearby(&self, lat: f32, lon: f32, t: &str) -> Option<Vec<GooglePlacesData>> {
         let body = self.request(&format!("{},{}", lat, lon), &t).unwrap();
-        let parsed: GoogleApiResponse = serde_json::from_str(&body).unwrap();
+        let parsed: GoPlacesApiResponse = serde_json::from_str(&body).unwrap();
 
-        return Ok(parsed.results);
+        return Some(parsed.results);
+    }
+}
+
+impl LocationProvider for GoPlacesApi {
+    fn venues_near(&self, lat: f32, lng: f32) -> Option<Vec<Venue>>{
+        return match self.nearby(lat, lng, GoPlacesApi::CATEGORIES) {
+            Some(results) => Some(results.into_iter().map(|p| Venue {
+                name: p.name,
+                vicinity: p.vicinity,
+                link: None,
+                rating: 0
+                }).collect()),
+            _ => None
+        }
     }
 }

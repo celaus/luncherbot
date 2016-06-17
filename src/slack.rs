@@ -5,9 +5,7 @@ use http::{Request, BackendError};
 use chrono::*;
 
 use std::str::from_utf8;
-use std::str::FromStr;
 use std::error::Error;
-use std::io::Read;
 use serde_json::Value;
 use websocket::{Receiver, Sender, Client, Message};
 use websocket::client::request::Url;
@@ -75,7 +73,7 @@ impl<'a> SlackAPI<'a> {
         return format!("{}/{}", &SLACK_API_BASE, method);
     }
 
-    fn api_start_channel(&self) -> Result<String, BackendError> {
+    fn start_rtm(&self) -> Result<String, BackendError> {
         let rq = Request::new(self.api_method("rtm.start".to_owned()));
         let encoded_body = format!("token={}", self.token);
         return rq.post(&encoded_body);
@@ -96,18 +94,14 @@ impl<'a> SlackAPI<'a> {
             };
 
             let channel = event.get("channel").unwrap().as_string().unwrap();
-            println!("<--------");
             let msg = match subtype.unwrap_or("") {
                 "message_changed" => event.get("message").unwrap().as_object().unwrap(),
                 "" => event,
                 _ => event,
             };
-            println!("<--------");
             let txt = msg.get("text").unwrap().as_string().unwrap();
-            println!("<--------");
             let ts: f64 = msg.get("ts").unwrap().as_string().unwrap().parse().unwrap();
             let timestamp = NaiveDateTime::from_timestamp(ts as i64, 0);
-            println!("<--------");
             return match msg.get("user") {
                 Some(v) => f.on_message(txt, &timestamp, v.as_string().unwrap(), channel, &subtype),
                 _ => None,
@@ -121,11 +115,8 @@ impl<'a> SlackAPI<'a> {
     fn handle_event(&self, r: Value) -> Result<Option<ChatMessage>, InternalError> {
         println!("handling event {:?}", &r);
         if let Some(event) = r.as_object() {
-            println!("#----");
             if let Some(event_type) = event.get("type") {
-                println!("#----");
                 if let Some(f) = self.callbacks {
-                    println!("#----");
                     let s = match event_type.as_string().unwrap() {
                         "hello" => f.on_hello(),
                         "message" => self.handle_message(event),
@@ -146,14 +137,17 @@ impl<'a> SlackAPI<'a> {
         self.callbacks = Some(callbacks);
     }
 
+    fn ping(&self) {
+    }
+
+
     /// Connect to the Slack RTM API
     pub fn connect(&self) -> Result<SlackResult, SlackResult> {
-        match self.api_start_channel() {
+        match self.start_rtm() {
             Ok(raw) => {
                 if self.api_set_active().is_err() {
                     return Err(SlackResult::NotOk);
                 }
-
                 let response: RTMStartResponse = serde_json::from_str(&raw).unwrap();
 
                 let url = Url::parse(&*response.url).unwrap(); // Get the URL
@@ -170,11 +164,11 @@ impl<'a> SlackAPI<'a> {
                         let payload_u8 = ws_msg.payload.into_owned();
                         let payload = from_utf8(&payload_u8).unwrap_or("");
                         println!("Received: {}", payload);
+
                         let response = self.decode(&payload)
                             .and_then(|result| self.handle_event(result));
-                        println!("()=====");
+
                         if let Ok(msg) = response {
-                            println!("trying to send response");
                             if let Some(txt) = msg {
                                 let response_text = self.encode(&txt).unwrap();
                                 println!("{}", &response_text);
@@ -182,17 +176,15 @@ impl<'a> SlackAPI<'a> {
                                 let sent = sender.send_message(&message);
                             }
                         }
+
                     } else {
                         let ws_err = received.err();
-                        println!("Error {:?}", ws_err)
                     }
                 }
                 return Ok(SlackResult::Ok);
             }
             _ => return Err(SlackResult::NotOk),
         }
-
-
     }
 }
 
@@ -207,15 +199,9 @@ pub struct ChatMessage {
 }
 
 #[derive(Serialize)]
-pub struct RTMStartRequest {
-    pub token: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub enum Event {
-    HelloEvent {
-        t: String,
-    },
+pub struct PingMessage {
+    #[serde(rename="type")]
+    pub t: String,
 }
 
 #[derive(Serialize, Deserialize)]

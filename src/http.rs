@@ -35,7 +35,7 @@ impl Request{
 
 
     pub fn post(&self, body: &String) -> Result<String, BackendError> {
-        let mut url: hyper::Url = Url::parse(&*self.url).unwrap();
+        let url: hyper::Url = Url::parse(&*self.url).unwrap();
         let client = Client::new();
 
         let mut headers = Headers::new();
