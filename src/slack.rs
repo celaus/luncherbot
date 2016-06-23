@@ -1,5 +1,6 @@
 extern crate serde_json;
 extern crate chrono;
+extern crate log;
 
 use http::{Request, BackendError};
 use chrono::*;
@@ -55,7 +56,7 @@ impl<'a> SlackAPI<'a> {
     }
 
     fn decode(&self, payload: &str) -> Result<Value, InternalError> {
-        println!("decoding {}", &payload);
+        info!("Decoding payload: '{}'", &payload);
         return match serde_json::from_str(&payload) {
             Ok(v) => Ok(v),
             Err(e) => Err(InternalError::with_message { msg: e.description().to_owned() }),
@@ -113,9 +114,9 @@ impl<'a> SlackAPI<'a> {
     }
 
     fn handle_event(&self, r: Value) -> Result<Option<ChatMessage>, InternalError> {
-        println!("handling event {:?}", &r);
         if let Some(event) = r.as_object() {
             if let Some(event_type) = event.get("type") {
+                info!("Handling event type '{:?}'", &event_type);
                 if let Some(f) = self.callbacks {
                     let s = match event_type.as_string().unwrap() {
                         "hello" => f.on_hello(),
@@ -137,53 +138,55 @@ impl<'a> SlackAPI<'a> {
         self.callbacks = Some(callbacks);
     }
 
-    fn ping(&self) {
-    }
+    fn ping(&self) {}
 
 
     /// Connect to the Slack RTM API
     pub fn connect(&self) -> Result<SlackResult, SlackResult> {
-        match self.start_rtm() {
-            Ok(raw) => {
-                if self.api_set_active().is_err() {
-                    return Err(SlackResult::NotOk);
-                }
-                let response: RTMStartResponse = serde_json::from_str(&raw).unwrap();
-
-                let url = Url::parse(&*response.url).unwrap(); // Get the URL
-                let request = Client::connect(url).unwrap(); // Connect to the server
-                let response = request.send().unwrap(); // Send the request
-                response.validate().unwrap(); // Ensure the response is valid
-
-                let client = response.begin(); // Get a Client
-                let (mut sender, mut receiver) = client.split();
-                for received in receiver.incoming_messages() {
-                    println!("msg cool? {}", received.is_ok());
-                    if received.is_ok() {
-                        let ws_msg: Message = received.unwrap();
-                        let payload_u8 = ws_msg.payload.into_owned();
-                        let payload = from_utf8(&payload_u8).unwrap_or("");
-                        println!("Received: {}", payload);
-
-                        let response = self.decode(&payload)
-                            .and_then(|result| self.handle_event(result));
-
-                        if let Ok(msg) = response {
-                            if let Some(txt) = msg {
-                                let response_text = self.encode(&txt).unwrap();
-                                println!("{}", &response_text);
-                                let message = Message::text(&*response_text);
-                                let sent = sender.send_message(&message);
-                            }
-                        }
-
-                    } else {
-                        let ws_err = received.err();
+        'control: loop {
+            match self.start_rtm() {
+                Ok(raw) => {
+                    if self.api_set_active().is_err() {
+                        return Err(SlackResult::NotOk);
                     }
+                    let response: RTMStartResponse = serde_json::from_str(&raw).unwrap();
+
+                    let url = Url::parse(&*response.url).unwrap(); // Get the URL
+                    let request = Client::connect(url).unwrap(); // Connect to the server
+                    let response = request.send().unwrap(); // Send the request
+                    response.validate().unwrap(); // Ensure the response is valid
+
+                    let client = response.begin(); // Get a Client
+                    let (mut sender, mut receiver) = client.split();
+                    for received in receiver.incoming_messages() {
+                        if received.is_ok() {
+                            let ws_msg: Message = received.unwrap();
+                            let payload_u8 = ws_msg.payload.into_owned();
+                            let payload = from_utf8(&payload_u8).unwrap_or("");
+                            info!("Message received: '{}'", payload);
+
+                            let response = self.decode(&payload)
+                                .and_then(|result| self.handle_event(result));
+
+                            if let Ok(msg) = response {
+                                if let Some(txt) = msg {
+                                    let response_text = self.encode(&txt).unwrap();
+                                    info!("Sending message: '{}'", &response_text);
+                                    let message = Message::text(&*response_text);
+                                    let sent = sender.send_message(&message);
+                                }
+                            }
+
+                        } else {
+                            let ws_err = received.err();
+                            error!("Received invalid message: {:?}", ws_err);
+                            continue 'control;
+                        }
+                    }
+                    return Ok(SlackResult::Ok);
                 }
-                return Ok(SlackResult::Ok);
+                _ => return Err(SlackResult::NotOk),
             }
-            _ => return Err(SlackResult::NotOk),
         }
     }
 }

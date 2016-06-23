@@ -7,6 +7,10 @@ extern crate chrono;
 extern crate toml;
 extern crate rand;
 
+#[macro_use]
+extern crate log;
+extern crate log4rs;
+
 mod google;
 mod http;
 mod slack;
@@ -42,6 +46,10 @@ fn read_api_keys(filename: &str) -> Result<(String, String, String, String), io:
 }
 
 fn main() {
+    let config_filename = "config.toml";
+    log4rs::init_file("logging.yml", Default::default()).unwrap();
+
+    info!("Starting LuncherBot");
     let locations = vec!(NamedLocation {
         name: "BER".to_owned(),
         latitude: 52.501862,
@@ -52,13 +60,14 @@ fn main() {
         latitude: 47.405018,
         longitude: 9.742586
     });
-
-    let api_keys = read_api_keys("config.toml").unwrap();
+    info!("Loading config file {}", config_filename);
+    let api_keys = read_api_keys(config_filename).unwrap();
     let google = GoPlacesApi::new(api_keys.0);
     let fs = FsVenueApi::new(api_keys.2, api_keys.3);
     let srv = LuncherBot::new(&fs as &LocationProvider, locations);
     let mut slack = SlackAPI::new(api_keys.1);
 
     slack.set_callbacks(&srv as &SlackAPIConsumer);
+    info!("Connecting to Slack API ...");
     let exit = slack.connect();
 }

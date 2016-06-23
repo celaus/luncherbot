@@ -4,13 +4,25 @@ extern crate chrono;
 extern crate toml;
 extern crate rand;
 
-
 use locationprovider::LocationProvider;
 use rand::Rng;
 
 use chrono::*;
+use venue::Venue;
 
 use slack::{SlackAPIConsumer, ChatMessage};
+
+enum SlackInfo {
+    Channel {id: String, name: String},
+    User {id: String, name: String}
+}
+
+enum BotCommand {
+    AddVenue { name: String, vicinity: String, link: Option<String> },
+    RateVenue { venue: Venue, rating: u8 },
+    Choose,
+    ShowHelp,
+}
 
 pub struct NamedLocation {
     pub name: String,
@@ -29,11 +41,38 @@ impl <'a>LuncherBot<'a> {
     const HELP: &'static str = "Hi! I'm luncherbot, your friendly lunch advisor.";
     const USAGE_PATTERN: &'static str = "Type: {} <location> in Slack to invoke me.";
 
+    ///
+    /// Create a new Bot
+    ///
     pub fn new(location_provider: &'a LocationProvider, locations: Vec<NamedLocation>) -> LuncherBot {
         LuncherBot {
             location_provider: location_provider,
             locations: locations,
         }
+    }
+
+    fn parse_message(&self, message: &String) -> Option<BotCommand> {
+        let mut parts:Vec<String> = message.split_whitespace().skip(1).map(|s|s.to_owned()).collect();
+        if let Some(token) = parts.pop() {
+            return match token.to_lowercase().as_ref() {
+                "add" => self._add_venue(&parts),
+                "rate" => self._rate_venue(&parts),
+                _ => self._choose_venue(token)
+            }
+        }
+        else {
+            return Some(BotCommand::ShowHelp);
+        }
+    }
+
+    fn _add_venue(&self, remainder: &Vec<String>) -> Option<BotCommand> {
+        return None;
+    }
+    fn _rate_venue(&self, remainder: &Vec<String>) -> Option<BotCommand> {
+return None;
+    }
+    fn _choose_venue(&self, venue: String) -> Option<BotCommand> {
+return None;
     }
 }
 
@@ -52,11 +91,11 @@ impl  <'a>SlackAPIConsumer for LuncherBot<'a> {
 
             let response_text = match places_found {
                 Some(places) => {
-                        println!("Available places: {}", places.iter()
-                            .map(|p| &p.name)
-                            .fold(String::new(), |p, c| p + "\n - "+ c));
+                        //info!("Available places: {}", places.iter()
+                        //    .map(|p| &p.name)
+                        //    .fold(String::new(), |p, c| p + "\n - "+ c));
                         let selection = rand::thread_rng().choose(&places).unwrap();
-                        format!("Name: {}, address: {}", selection.name, selection.vicinity) },
+                        format!("Name: {}, address: {}, rating: {}", selection.name, selection.vicinity, selection.rating) },
                 _ => format!("Nothing found for location '{}'", txt)
             };
 

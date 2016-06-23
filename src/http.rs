@@ -5,12 +5,12 @@ use self::hyper::header::{Headers, ContentType};
 
 use std::io::Read;
 
-
 pub type BackendError = hyper::Error;
 
 pub struct Request {
     url: String,
 }
+
 impl Request{
     pub fn new(url: String) -> Request {
         Request {
@@ -18,6 +18,9 @@ impl Request{
         }
     }
 
+    ///
+    ///
+    ///
     pub fn get(&self, params: Vec<(&String, &String)>) -> Result<String, BackendError> {
         let mut url: hyper::Url = Url::parse(&*self.url).unwrap();
         let client = Client::new();

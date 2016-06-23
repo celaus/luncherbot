@@ -7,6 +7,10 @@ pub struct Venue {
 
 
 impl Venue {
+
+    ///
+    /// Create a new Venue.
+    ///
     pub fn new(name: String, vicinity: String, link: Option<String>, rating: u8) -> Venue {
         Venue {
             name: name,
