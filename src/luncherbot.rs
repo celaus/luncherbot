@@ -20,7 +20,7 @@ enum SlackInfo {
 enum BotCommand {
     AddVenue { name: String, vicinity: String, link: Option<String> },
     RateVenue { venue: Venue, rating: u8 },
-    Choose,
+    Choose { venue: Venue },
     ShowHelp,
 }
 
@@ -38,7 +38,7 @@ pub struct LuncherBot<'a>  {
 impl <'a>LuncherBot<'a> {
     const CATEGORIES: &'static str = "restaurant";
     const COMMAND: &'static str = "!luncherbot";
-    const HELP: &'static str = "Hi! I'm luncherbot, your friendly lunch advisor.";
+    const HELP: &'static str = "Hi! I'm luncherbot, your friendly lunch advisor. (This is a help message)";
     const USAGE_PATTERN: &'static str = "Type: {} <location> in Slack to invoke me.";
 
     ///
@@ -51,8 +51,8 @@ impl <'a>LuncherBot<'a> {
         }
     }
 
-    fn parse_message(&self, message: &String) -> Option<BotCommand> {
-        let mut parts:Vec<String> = message.split_whitespace().skip(1).map(|s|s.to_owned()).collect();
+    fn parse_message(&self, message: String) -> Option<BotCommand> {
+        let mut parts:Vec<String> = message.split_whitespace().map(|s|s.to_owned()).collect();
         if let Some(token) = parts.pop() {
             return match token.to_lowercase().as_ref() {
                 "add" => self._add_venue(&parts),
@@ -72,11 +72,20 @@ impl <'a>LuncherBot<'a> {
 return None;
     }
     fn _choose_venue(&self, venue: String) -> Option<BotCommand> {
-return None;
+        let places_found = match self.locations.iter().filter(|l| l.name == venue).next() {
+            Some(location) => self.location_provider.venues_near(location.latitude, location.longitude),
+            _ => None
+        };
+
+        return match places_found {
+            Some(ref places) =>
+                    Some(BotCommand::Choose {                        venue: rand::thread_rng().choose(places).unwrap().clone()                        }),
+            _ => None
+        }
     }
 }
 
-impl  <'a>SlackAPIConsumer for LuncherBot<'a> {
+impl <'a>SlackAPIConsumer for LuncherBot<'a> {
     fn on_hello(&self) -> Option<ChatMessage> {
         return None;
     }
@@ -84,19 +93,11 @@ impl  <'a>SlackAPIConsumer for LuncherBot<'a> {
     fn on_message(&self, text: &str, ts: &NaiveDateTime, user: &str, channel: &str, subtype: &Option<&str>) -> Option<ChatMessage> {
         if let Some(mentioned_msg) = text.find(LuncherBot::COMMAND) {
             let txt = text.trim_left_matches(LuncherBot::COMMAND).trim().to_owned().to_uppercase();
-            let places_found = match self.locations.iter().filter(|l| l.name == txt).next() {
-                Some(location) => self.location_provider.venues_near(location.latitude, location.longitude),
-                _ => None
-            };
-
-            let response_text = match places_found {
-                Some(places) => {
-                        //info!("Available places: {}", places.iter()
-                        //    .map(|p| &p.name)
-                        //    .fold(String::new(), |p, c| p + "\n - "+ c));
-                        let selection = rand::thread_rng().choose(&places).unwrap();
-                        format!("Name: {}, address: {}, rating: {}", selection.name, selection.vicinity, selection.rating) },
-                _ => format!("Nothing found for location '{}'", txt)
+            let response_text = match self.parse_message(txt).unwrap_or(BotCommand::ShowHelp) {
+                BotCommand::AddVenue { name: name, vicinity: vicinity, link: link} => format!("Venue '{}' added", name),
+                BotCommand::RateVenue { venue: venue, rating: rating } => format!("Venue '{}' rated", venue.name),
+                BotCommand::Choose { venue: venue } => format!("Name: {}, address: {}, rating: {}", venue.name, venue.vicinity, venue.rating),
+                BotCommand::ShowHelp => LuncherBot::HELP.to_owned(),
             };
 
             return Some(ChatMessage {

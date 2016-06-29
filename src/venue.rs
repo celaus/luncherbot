@@ -1,3 +1,5 @@
+
+#[derive(Clone)]
 pub struct Venue {
     pub name: String,
     pub vicinity: String,
